@@ -754,6 +754,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	): Promise<LoadExtensionsResult> {
 		// Without a pre-trust pass nothing is preloaded, and inline extensions load here.
 		const preloaded = preTrustExtensions?.extensions ?? [];
+
 		const preloadedByPath = new Map(
 			preloaded
 				.filter((extension) => !extension.path.startsWith("<inline:"))
@@ -788,6 +789,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 			runtime: remainingExtensions.runtime,
 		};
 		mergeExtensionWarnings(extensionsResult, replacementWarnings);
+		// Deduplicate extensions loaded from multiple paths (e.g., npm package + postinstall copy)
+		extensionsResult.extensions = this.dedupeExtensions(extensionsResult.extensions, extensionsResult.errors);
+
 		this.addExtensionConflictDiagnostics(extensionsResult);
 		return extensionsResult;
 	}
@@ -1283,5 +1287,56 @@ export class DefaultResourceLoader implements ResourceLoader {
 		}
 
 		return conflicts;
+	}
+
+	/**
+	 * Deduplicate extensions that are loaded from multiple paths.
+	 * This can happen when an npm package has a postinstall script that copies
+	 * files to ~/.pi/agent/extensions/ while also being discovered via the
+	 * package manager. When an extension registers ALL the same tools/commands/flags
+	 * as another, they're considered duplicates and the later one is removed.
+	 */
+	private dedupeExtensions(extensions: Extension[], errors: Array<{ path: string; error: string }>): Extension[] {
+		if (extensions.length <= 1) return extensions;
+
+		// Build signature for each extension (set of all registered resources)
+		const signatures: Map<string, Set<string>> = new Map();
+		for (const ext of extensions) {
+			const sig = new Set<string>();
+			for (const toolName of ext.tools.keys()) sig.add(`tool:${toolName}`);
+			for (const cmdName of ext.commands.keys()) sig.add(`cmd:${cmdName}`);
+			for (const flagName of ext.flags.keys()) sig.add(`flag:${flagName}`);
+			signatures.set(ext.path, sig);
+		}
+
+		// Find duplicates: extensions where ALL their registrations conflict with another
+		const duplicates = new Set<string>();
+		const seen = new Map<string, string>(); // signature -> first path
+
+		for (const ext of extensions) {
+			const sig = signatures.get(ext.path);
+			if (!sig || sig.size === 0) continue;
+
+			// Create a normalized signature string for comparison
+			const sigKey = Array.from(sig).sort().join("|");
+			const existing = seen.get(sigKey);
+
+			if (existing) {
+				// Same signature = duplicate extension
+				duplicates.add(ext.path);
+				// Remove the error for this duplicate since we're handling it
+				const errorIndex = errors.findIndex((e) => e.path === ext.path);
+				if (errorIndex !== -1) {
+					errors.splice(errorIndex, 1);
+				}
+			} else {
+				seen.set(sigKey, ext.path);
+			}
+		}
+
+		if (duplicates.size === 0) return extensions;
+
+		// Filter out duplicates
+		return extensions.filter((ext) => !duplicates.has(ext.path));
 	}
 }
