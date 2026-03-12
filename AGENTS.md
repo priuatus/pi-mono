@@ -30,6 +30,22 @@ read README.md, then ask which module(s) to work on. Based on the answer, read t
 - When writing tests, run them, identify issues in either the test or implementation, and iterate until fixed.
 - NEVER commit unless user asks
 
+## Installing from Local Source
+To install pi globally from a local clone (e.g., after forking or making local modifications):
+
+```bash
+# 1. Ensure all dependencies are installed
+npm install
+
+# 2. Build all packages
+npm run build
+
+# 3. Install globally using absolute path to the coding-agent package
+npm install -g /path/to/pi-mono/packages/coding-agent
+```
+
+This creates a symlink, so any future rebuilds (`npm run build`) are immediately available without reinstalling.
+
 ## GitHub Issues
 When reading issues:
 - Always read all comments on the issue
