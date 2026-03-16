@@ -206,6 +206,8 @@ Examples:
 - Fixed Bun Bedrock provider registration to survive provider resets and session reloads in compiled binaries ([#2350](https://github.com/badlogic/pi-mono/pull/2350) by [@unexge](https://github.com/unexge))
 - Fixed OpenRouter reasoning requests to use the provider's nested reasoning payload, restoring thinking level support for OpenRouter models and custom compat settings ([#2298](https://github.com/badlogic/pi-mono/pull/2298) by [@PriNova](https://github.com/PriNova))
 - Fixed Bedrock application inference profiles to support prompt caching when `AWS_BEDROCK_FORCE_CACHE=1` is set, covering profile ARNs that do not expose the underlying Claude model name ([#2346](https://github.com/badlogic/pi-mono/pull/2346) by [@haoqixu](https://github.com/haoqixu))
+- Fixed `--skill <name>` to look up skills by name in default directories (`~/.pi/agent/skills/`, `<project>/.pi/skills/`, `~/.agents/skills/`) when the path doesn't exist, instead of failing with "skill path does not exist"
+- Fixed `--extension npm:<package>` to use the global npm installation when available, avoiding unnecessary re-downloads to temporary directories
 
 ## [0.60.0] - 2026-03-18
 
@@ -268,6 +270,10 @@ Examples:
 ### Fixed
 
 - Fixed steering messages to wait until the current assistant message's tool-call batch fully finishes instead of skipping pending tool calls.
+=======
+- Fixed `--skill <name>` to look up skills by name in default directories (`~/.pi/agent/skills/`, `<project>/.pi/skills/`, `~/.agents/skills/`) when the path doesn't exist, instead of failing with "skill path does not exist"
+- Fixed `--extension npm:<package>` to use the global npm installation when available, avoiding unnecessary re-downloads to temporary directories
+>>>>>>> 438d5298 (fix(coding-agent): use global npm installation when available)
 
 ## [0.58.3] - 2026-03-15
 

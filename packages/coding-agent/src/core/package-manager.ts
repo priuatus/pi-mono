@@ -1034,10 +1034,22 @@ export class DefaultPackageManager implements PackageManager {
 			};
 
 			if (parsed.type === "npm") {
-				const installedPath = this.getNpmInstallPath(parsed, scope);
+				// For temporary scope, first check if package is already installed globally
+				let installedPath = this.getNpmInstallPath(parsed, scope);
+				let useGlobalPath = false;
+
+				if (scope === "temporary") {
+					const globalPath = this.getNpmInstallPath(parsed, "user");
+					if (existsSync(globalPath) && !(await this.npmNeedsUpdate(parsed, globalPath))) {
+						installedPath = globalPath;
+						useGlobalPath = true;
+					}
+				}
+
 				const needsInstall =
-					!existsSync(installedPath) ||
-					(parsed.pinned && !(await this.installedNpmMatchesPinnedVersion(parsed, installedPath)));
+					!useGlobalPath &&
+					(!existsSync(installedPath) ||
+						(parsed.pinned && !(await this.installedNpmMatchesPinnedVersion(parsed, installedPath))));
 				if (needsInstall) {
 					const installed = await installMissing();
 					if (!installed) continue;
