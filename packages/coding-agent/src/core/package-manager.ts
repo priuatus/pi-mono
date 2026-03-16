@@ -1283,9 +1283,22 @@ export class DefaultPackageManager implements PackageManager {
 			};
 
 			if (parsed.type === "npm") {
+				// For temporary scope, first check if package is already installed globally
 				let installedPath = this.getNpmInstallPath(parsed, resolvedScope);
+				let useGlobalPath = false;
+
+				if (resolvedScope === "temporary") {
+					const globalPath = this.getNpmInstallPath(parsed, "user");
+					if (existsSync(globalPath) && !(await this.npmHasAvailableUpdate(parsed, globalPath))) {
+						installedPath = globalPath;
+						useGlobalPath = true;
+					}
+				}
+
 				const needsInstall =
-					!existsSync(installedPath) || !(await this.installedNpmMatchesConfiguredVersion(parsed, installedPath));
+					!useGlobalPath &&
+					(!existsSync(installedPath) ||
+						!(await this.installedNpmMatchesConfiguredVersion(parsed, installedPath)));
 				if (needsInstall) {
 					const installed = await installMissing();
 					if (!installed) continue;
