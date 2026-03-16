@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
+import { homedir } from "os";
 import ignore from "ignore";
-import { basename, dirname, join, relative, resolve, sep } from "path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { parseFrontmatter } from "../utils/frontmatter.ts";
 import { canonicalizePath, resolvePath } from "../utils/paths.ts";
@@ -474,11 +475,39 @@ export function loadSkills(options: LoadSkillsOptions): LoadSkillsResult {
 		return "path";
 	};
 
+	// Helper to look up a skill by name in default directories
+	// Checks: <agentDir>/skills/<name>/, <project>/.pi/skills/<name>/, ~/.agents/skills/<name>/
+	const findSkillByName = (name: string): string | null => {
+		const userAgentsSkillsDir = join(homedir(), ".agents", "skills");
+		const candidates = [
+			join(resolvedAgentDir, "skills", name, "SKILL.md"),
+			join(resolvedAgentDir, "skills", name),
+			resolve(resolvedCwd, CONFIG_DIR_NAME, "skills", name, "SKILL.md"),
+			resolve(resolvedCwd, CONFIG_DIR_NAME, "skills", name),
+			join(userAgentsSkillsDir, name, "SKILL.md"),
+			join(userAgentsSkillsDir, name),
+		];
+		for (const candidate of candidates) {
+			if (existsSync(candidate)) {
+				return candidate;
+			}
+		}
+		return null;
+	};
+
 	for (const rawPath of skillPaths) {
-		const resolvedPath = resolvePath(rawPath, resolvedCwd, { trim: true });
+		let resolvedPath = resolvePath(rawPath, resolvedCwd, { trim: true });
 		if (!existsSync(resolvedPath)) {
-			allDiagnostics.push({ type: "warning", message: "skill path does not exist", path: resolvedPath });
-			continue;
+			// Try looking up as a skill name in default directories
+			// If rawPath was pre-resolved to an absolute path, extract the basename as the skill name
+			const skillName = isAbsolute(rawPath) ? basename(rawPath) : rawPath;
+			const foundPath = findSkillByName(skillName);
+			if (foundPath) {
+				resolvedPath = foundPath;
+			} else {
+				allDiagnostics.push({ type: "warning", message: "skill path does not exist", path: resolvedPath });
+				continue;
+			}
 		}
 
 		try {
