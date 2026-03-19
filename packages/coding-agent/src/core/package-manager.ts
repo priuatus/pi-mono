@@ -1040,7 +1040,7 @@ export class DefaultPackageManager implements PackageManager {
 
 				if (scope === "temporary") {
 					const globalPath = this.getNpmInstallPath(parsed, "user");
-					if (existsSync(globalPath) && !(await this.npmNeedsUpdate(parsed, globalPath))) {
+					if (existsSync(globalPath) && !(await this.npmHasAvailableUpdate(parsed, globalPath))) {
 						installedPath = globalPath;
 						useGlobalPath = true;
 					}
