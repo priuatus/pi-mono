@@ -439,6 +439,12 @@ export interface ResolveCliModelResult {
  * - --model <provider>/<pattern>
  * - Fuzzy matching (same rules as model scoping: exact id, then partial id/name)
  *
+ * When a bare model ID matches multiple providers, resolution order is:
+ * 1. Single match → use it
+ * 2. Multiple matches and defaultProvider matches → use it
+ * 3. Multiple matches and exactly one has auth configured → use it
+ * 4. Otherwise → ambiguous error; require --provider or provider/model
+ *
  * Note: This does not apply the thinking level by itself, but it may *parse* and
  * return a thinking level from "<pattern>:<thinking>" so the caller can apply it.
  */
@@ -449,8 +455,10 @@ export function resolveCliModel(options: {
 	/** `--api-key` was supplied for the selected provider. */
 	inlineApiKey?: boolean;
 	modelRuntime: ModelRuntime;
+	/** User's configured default provider (used to disambiguate model IDs) */
+	defaultProvider?: string;
 }): ResolveCliModelResult {
-	const { cliProvider, cliModel, cliThinking, inlineApiKey, modelRuntime } = options;
+	const { cliProvider, cliModel, cliThinking, inlineApiKey, modelRuntime, defaultProvider } = options;
 
 	if (!cliModel) {
 		return { model: undefined, warning: undefined, error: undefined };
@@ -478,6 +486,17 @@ export function resolveCliModel(options: {
 		};
 	}
 
+	// A bare model ID that exists on several providers is disambiguated by the user's configured
+	// default provider ahead of the auth-based selection inside resolveModelReference (see the
+	// resolution order documented above).
+	if (!provider && !splitProviderPrefix(cliModel, models) && defaultProvider) {
+		const lower = cliModel.trim().toLowerCase();
+		const defaultMatch = models.find((m) => m.provider === defaultProvider && m.id.toLowerCase() === lower);
+		if (defaultMatch) {
+			return { model: defaultMatch, thinkingLevel: undefined, warning: undefined, error: undefined };
+		}
+	}
+
 	const result = resolveModelReference(
 		{ text: cliModel, provider, thinkingSuffix: "strict", fuzzy: true },
 		models,
@@ -500,7 +519,7 @@ export function resolveCliModel(options: {
 		return {
 			model: undefined,
 			warning: undefined,
-			error: `Model "${cliModel}" is ambiguous across providers: ${matches}. ${authHint} Use --provider or provider/model.`,
+			error: `Model "${cliModel}" is ambiguous across providers: ${matches}. ${authHint} Use --provider or provider/model. Set a default provider in settings to disambiguate.`,
 		};
 	}
 
