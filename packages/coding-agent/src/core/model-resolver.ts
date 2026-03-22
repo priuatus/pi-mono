@@ -400,6 +400,12 @@ export interface ResolveCliModelResult {
  * - --model <provider>/<pattern>
  * - Fuzzy matching (same rules as model scoping: exact id, then partial id/name)
  *
+ * When a bare model ID matches multiple providers, resolution order is:
+ * 1. Single match → use it
+ * 2. Multiple matches and defaultProvider matches → use it
+ * 3. Multiple matches and exactly one has auth configured → use it
+ * 4. Otherwise → ambiguous error; require --provider or provider/model
+ *
  * Note: This does not apply the thinking level by itself, but it may *parse* and
  * return a thinking level from "<pattern>:<thinking>" so the caller can apply it.
  */
@@ -408,8 +414,10 @@ export function resolveCliModel(options: {
 	cliModel?: string;
 	cliThinking?: ThinkingLevel;
 	modelRuntime: ModelRuntime;
+	/** User's configured default provider (used to disambiguate model IDs) */
+	defaultProvider?: string;
 }): ResolveCliModelResult {
-	const { cliProvider, cliModel, cliThinking, modelRuntime } = options;
+	const { cliProvider, cliModel, cliThinking, modelRuntime, defaultProvider } = options;
 
 	if (!cliModel) {
 		return { model: undefined, warning: undefined, error: undefined };
@@ -476,6 +484,16 @@ export function resolveCliModel(options: {
 			return { model: exactMatches[0], warning: undefined, thinkingLevel: undefined, error: undefined };
 		}
 		if (exactMatches.length > 1) {
+			// Multiple providers have this model ID - disambiguate:
+			// 1. Prefer the user's configured default provider if it matches
+			if (defaultProvider) {
+				const defaultMatch = exactMatches.find((m) => m.provider === defaultProvider);
+				if (defaultMatch) {
+					return { model: defaultMatch, warning: undefined, thinkingLevel: undefined, error: undefined };
+				}
+			}
+
+			// 2. Prefer the sole authenticated provider when there is one
 			const authenticatedExactMatches = exactMatches.filter((m) => modelRuntime.hasConfiguredAuth(m.provider));
 			if (authenticatedExactMatches.length === 1) {
 				return {
@@ -486,6 +504,7 @@ export function resolveCliModel(options: {
 				};
 			}
 
+			// 3. Ambiguous - require an explicit provider
 			const matches = exactMatches
 				.map((m) => `${m.provider}/${m.id}`)
 				.sort((a, b) => a.localeCompare(b))
@@ -498,7 +517,7 @@ export function resolveCliModel(options: {
 				model: undefined,
 				warning: undefined,
 				thinkingLevel: undefined,
-				error: `Model "${cliModel}" is ambiguous across providers: ${matches}. ${authHint} Use --provider or provider/model.`,
+				error: `Model "${cliModel}" is ambiguous across providers: ${matches}. ${authHint} Use --provider or provider/model. Set a default provider in settings to disambiguate.`,
 			};
 		}
 	}
