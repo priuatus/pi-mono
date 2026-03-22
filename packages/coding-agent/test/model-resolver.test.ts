@@ -370,6 +370,124 @@ describe("resolveCliModel", () => {
 		expect(result.model?.provider).toBe("openrouter");
 		expect(result.model?.id).toBe("qwen/qwen3-coder:exacto");
 	});
+
+	describe("ambiguous model ID resolution", () => {
+		// Models with the same ID across multiple providers
+		const zaiModel: Model<"anthropic-messages"> = {
+			id: "glm-5",
+			name: "GLM-5",
+			api: "anthropic-messages",
+			provider: "zai",
+			baseUrl: "https://api.z.ai/api/paas/v4",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 1 },
+			contextWindow: 128000,
+			maxTokens: 8192,
+		};
+		const opencodeModel: Model<"anthropic-messages"> = {
+			id: "glm-5",
+			name: "GLM-5",
+			api: "anthropic-messages",
+			provider: "opencode",
+			baseUrl: "https://opencode.ai/zen/v1",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 1 },
+			contextWindow: 128000,
+			maxTokens: 8192,
+		};
+		const ambiguousModels = [zaiModel, opencodeModel];
+
+		test("prefers default provider when model ID exists across multiple providers", () => {
+			const registry = {
+				getAll: () => ambiguousModels,
+				authStorage: { hasAuth: () => false },
+			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+
+			const result = resolveCliModel({
+				cliModel: "glm-5",
+				modelRegistry: registry,
+				defaultProvider: "zai",
+			});
+
+			expect(result.error).toBeUndefined();
+			expect(result.warning).toBeUndefined();
+			expect(result.model?.provider).toBe("zai");
+			expect(result.model?.id).toBe("glm-5");
+		});
+
+		test("prefers provider with auth configured when no default provider matches", () => {
+			const registry = {
+				getAll: () => ambiguousModels,
+				authStorage: { hasAuth: (provider: string) => provider === "opencode" },
+			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+
+			const result = resolveCliModel({
+				cliModel: "glm-5",
+				modelRegistry: registry,
+				defaultProvider: undefined,
+			});
+
+			expect(result.error).toBeUndefined();
+			expect(result.warning).toBeUndefined();
+			expect(result.model?.provider).toBe("opencode");
+			expect(result.model?.id).toBe("glm-5");
+		});
+
+		test("prefers default provider over auth when both exist", () => {
+			const registry = {
+				getAll: () => ambiguousModels,
+				authStorage: { hasAuth: (provider: string) => provider === "opencode" },
+			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+
+			const result = resolveCliModel({
+				cliModel: "glm-5",
+				modelRegistry: registry,
+				defaultProvider: "zai",
+			});
+
+			expect(result.error).toBeUndefined();
+			expect(result.warning).toBeUndefined();
+			expect(result.model?.provider).toBe("zai");
+			expect(result.model?.id).toBe("glm-5");
+		});
+
+		test("falls back to first match with warning when no default or auth", () => {
+			const registry = {
+				getAll: () => ambiguousModels,
+				authStorage: { hasAuth: () => false },
+			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+
+			const result = resolveCliModel({
+				cliModel: "glm-5",
+				modelRegistry: registry,
+				defaultProvider: undefined,
+			});
+
+			expect(result.error).toBeUndefined();
+			expect(result.warning).toContain("Multiple providers have model");
+			expect(result.warning).toContain("zai, opencode");
+			expect(result.model?.id).toBe("glm-5");
+		});
+
+		test("single match works without default provider", () => {
+			const registry = {
+				getAll: () => [zaiModel],
+				authStorage: { hasAuth: () => false },
+			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+
+			const result = resolveCliModel({
+				cliModel: "glm-5",
+				modelRegistry: registry,
+				defaultProvider: undefined,
+			});
+
+			expect(result.error).toBeUndefined();
+			expect(result.warning).toBeUndefined();
+			expect(result.model?.provider).toBe("zai");
+		});
+	});
 });
 
 describe("default model selection", () => {

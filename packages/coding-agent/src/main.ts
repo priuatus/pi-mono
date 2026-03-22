@@ -522,6 +522,7 @@ function buildSessionOptions(
 			cliProvider: parsed.provider,
 			cliModel: parsed.model,
 			modelRegistry,
+			defaultProvider: settingsManager.getDefaultProvider(),
 		});
 		if (resolved.warning) {
 			console.warn(chalk.yellow(`Warning: ${resolved.warning}`));

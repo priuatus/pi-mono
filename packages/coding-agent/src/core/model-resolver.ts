@@ -322,6 +322,12 @@ export interface ResolveCliModelResult {
  * - --model <provider>/<pattern>
  * - Fuzzy matching (same rules as model scoping: exact id, then partial id/name)
  *
+ * When a bare model ID matches multiple providers, resolution order is:
+ * 1. Single match → use it
+ * 2. Multiple matches and defaultProvider matches → use it
+ * 3. Multiple matches and one has auth configured → prefer it
+ * 4. Multiple matches with no clear winner → use first with warning
+ *
  * Note: This does not apply the thinking level by itself, but it may *parse* and
  * return a thinking level from "<pattern>:<thinking>" so the caller can apply it.
  */
@@ -329,8 +335,10 @@ export function resolveCliModel(options: {
 	cliProvider?: string;
 	cliModel?: string;
 	modelRegistry: ModelRegistry;
+	/** User's configured default provider (used to disambiguate model IDs) */
+	defaultProvider?: string;
 }): ResolveCliModelResult {
-	const { cliProvider, cliModel, modelRegistry } = options;
+	const { cliProvider, cliModel, modelRegistry, defaultProvider } = options;
 
 	if (!cliModel) {
 		return { model: undefined, warning: undefined, error: undefined };
@@ -387,11 +395,38 @@ export function resolveCliModel(options: {
 	// This handles models whose IDs naturally contain slashes (e.g. OpenRouter-style IDs).
 	if (!provider) {
 		const lower = cliModel.toLowerCase();
-		const exact = availableModels.find(
+		const candidates = availableModels.filter(
 			(m) => m.id.toLowerCase() === lower || `${m.provider}/${m.id}`.toLowerCase() === lower,
 		);
-		if (exact) {
-			return { model: exact, warning: undefined, thinkingLevel: undefined, error: undefined };
+
+		if (candidates.length === 1) {
+			return { model: candidates[0], warning: undefined, thinkingLevel: undefined, error: undefined };
+		}
+
+		if (candidates.length > 1) {
+			// Multiple providers have this model ID - disambiguate
+			// 1. Prefer default provider if set and matches
+			if (defaultProvider) {
+				const defaultMatch = candidates.find((m) => m.provider === defaultProvider);
+				if (defaultMatch) {
+					return { model: defaultMatch, warning: undefined, thinkingLevel: undefined, error: undefined };
+				}
+			}
+
+			// 2. Prefer providers with auth configured
+			const withAuth = candidates.find((m) => modelRegistry.authStorage.hasAuth(m.provider));
+			if (withAuth) {
+				return { model: withAuth, warning: undefined, thinkingLevel: undefined, error: undefined };
+			}
+
+			// 3. Fall back to first match with a warning
+			const providers = candidates.map((m) => m.provider).join(", ");
+			return {
+				model: candidates[0],
+				warning: `Multiple providers have model "${cliModel}" (${providers}). Using ${candidates[0].provider}.`,
+				thinkingLevel: undefined,
+				error: undefined,
+			};
 		}
 	}
 
