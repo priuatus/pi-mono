@@ -703,6 +703,121 @@ describe("resolveCliModel", () => {
 			expect(result.thinkingLevel).toBeUndefined();
 		});
 	});
+
+	describe("ambiguous model ID resolution", () => {
+		// Models with the same ID across multiple providers
+		const zaiModel: Model<"anthropic-messages"> = {
+			id: "glm-5",
+			name: "GLM-5",
+			api: "anthropic-messages",
+			provider: "zai",
+			baseUrl: "https://api.z.ai/api/paas/v4",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 1 },
+			contextWindow: 128000,
+			maxTokens: 8192,
+		};
+		const opencodeModel: Model<"anthropic-messages"> = {
+			id: "glm-5",
+			name: "GLM-5",
+			api: "anthropic-messages",
+			provider: "opencode",
+			baseUrl: "https://opencode.ai/zen/v1",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 1 },
+			contextWindow: 128000,
+			maxTokens: 8192,
+		};
+		const ambiguousModels = [zaiModel, opencodeModel];
+
+		const makeRuntime = (models: Model<"anthropic-messages">[], authProvider?: string) =>
+			({
+				getModels: () => models,
+				hasConfiguredAuth: (provider: string) => provider === authProvider,
+			}) as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
+
+		test("prefers default provider when model ID exists across multiple providers", () => {
+			const result = resolveCliModel({
+				cliModel: "glm-5",
+				modelRuntime: makeRuntime(ambiguousModels),
+				defaultProvider: "zai",
+			});
+
+			expect(result.error).toBeUndefined();
+			expect(result.warning).toBeUndefined();
+			expect(result.model?.provider).toBe("zai");
+			expect(result.model?.id).toBe("glm-5");
+		});
+
+		test("prefers the sole authenticated provider when no default provider matches", () => {
+			const result = resolveCliModel({
+				cliModel: "glm-5",
+				modelRuntime: makeRuntime(ambiguousModels, "opencode"),
+				defaultProvider: undefined,
+			});
+
+			expect(result.error).toBeUndefined();
+			expect(result.warning).toBeUndefined();
+			expect(result.model?.provider).toBe("opencode");
+			expect(result.model?.id).toBe("glm-5");
+		});
+
+		test("prefers default provider over auth when both exist", () => {
+			const result = resolveCliModel({
+				cliModel: "glm-5",
+				modelRuntime: makeRuntime(ambiguousModels, "opencode"),
+				defaultProvider: "zai",
+			});
+
+			expect(result.error).toBeUndefined();
+			expect(result.warning).toBeUndefined();
+			expect(result.model?.provider).toBe("zai");
+			expect(result.model?.id).toBe("glm-5");
+		});
+
+		test("returns an error when no default provider and no sole authenticated provider", () => {
+			const result = resolveCliModel({
+				cliModel: "glm-5",
+				modelRuntime: makeRuntime(ambiguousModels),
+				defaultProvider: undefined,
+			});
+
+			expect(result.error).toContain("ambiguous across providers");
+			expect(result.error).toContain("zai/glm-5");
+			expect(result.error).toContain("opencode/glm-5");
+			expect(result.model).toBeUndefined();
+		});
+
+		test("returns an error when multiple providers are authenticated and no default provider", () => {
+			const runtime = {
+				getModels: () => ambiguousModels,
+				hasConfiguredAuth: () => true,
+			} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
+
+			const result = resolveCliModel({
+				cliModel: "glm-5",
+				modelRuntime: runtime,
+				defaultProvider: undefined,
+			});
+
+			expect(result.error).toContain("More than one matching provider is authenticated");
+			expect(result.model).toBeUndefined();
+		});
+
+		test("single match works without default provider", () => {
+			const result = resolveCliModel({
+				cliModel: "glm-5",
+				modelRuntime: makeRuntime([zaiModel]),
+				defaultProvider: undefined,
+			});
+
+			expect(result.error).toBeUndefined();
+			expect(result.warning).toBeUndefined();
+			expect(result.model?.provider).toBe("zai");
+		});
+	});
 });
 
 describe("default model selection", () => {

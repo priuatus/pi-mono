@@ -471,6 +471,7 @@ function buildSessionOptions(
 			cliModel: parsed.model,
 			cliThinking: parsed.thinking,
 			modelRuntime,
+			defaultProvider: settingsManager.getDefaultProvider(),
 		});
 		if (resolved.warning) {
 			diagnostics.push({ type: "warning", message: resolved.warning });
