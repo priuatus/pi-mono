@@ -1206,7 +1206,24 @@ export class DefaultResourceLoader implements ResourceLoader {
 			signatures.set(ext.path, sig);
 		}
 
-		// Find duplicates: extensions where ALL their registrations conflict with another
+		// Cache file contents so identical sources (same package installed via
+		// multiple paths) are only read once
+		const contents = new Map<string, string | null>();
+		const readSource = (path: string): string | null => {
+			if (!contents.has(path)) {
+				try {
+					contents.set(path, readFileSync(path, "utf8"));
+				} catch {
+					contents.set(path, null);
+				}
+			}
+			return contents.get(path) ?? null;
+		};
+
+		// Find duplicates: extensions whose registrations are identical AND whose
+		// source files are byte-identical (e.g., npm package + postinstall copy).
+		// Different extensions that merely register the same names are NOT
+		// duplicates; they are reported as conflicts instead.
 		const duplicates = new Set<string>();
 		const seen = new Map<string, string>(); // signature -> first path
 
@@ -1219,13 +1236,19 @@ export class DefaultResourceLoader implements ResourceLoader {
 			const existing = seen.get(sigKey);
 
 			if (existing) {
-				// Same signature = duplicate extension
-				duplicates.add(ext.path);
-				// Remove the error for this duplicate since we're handling it
-				const errorIndex = errors.findIndex((e) => e.path === ext.path);
-				if (errorIndex !== -1) {
-					errors.splice(errorIndex, 1);
+				const existingSource = readSource(existing);
+				const currentSource = readSource(ext.path);
+				const isCopy = existingSource !== null && existingSource === currentSource;
+				if (isCopy) {
+					duplicates.add(ext.path);
+					// Remove the error for this duplicate since we're handling it
+					const errorIndex = errors.findIndex((e) => e.path === ext.path);
+					if (errorIndex !== -1) {
+						errors.splice(errorIndex, 1);
+					}
 				}
+				// Different sources with the same registrations: keep both and let
+				// conflict detection report the collision.
 			} else {
 				seen.set(sigKey, ext.path);
 			}
